@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Controls;
@@ -9,7 +8,6 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
-using Avalonia.Media.Imaging;
 using AvaloniaEdit.CodeCompletion;
 using AvaloniaEdit.Demo.Resources;
 using AvaloniaEdit.Document;
@@ -18,19 +16,19 @@ using AvaloniaEdit.Folding;
 using AvaloniaEdit.Rendering;
 using AvaloniaEdit.TextMate;
 using TextMateSharp.Grammars;
-using Avalonia.Diagnostics;
 using AvaloniaEdit.Snippets;
 using Snippet = AvaloniaEdit.Snippets.Snippet;
 using AvaloniaEdit.Demo.ViewModels;
+using System.Diagnostics;
 namespace AvaloniaEdit.Demo
 {
     using Pair = KeyValuePair<int, Control>;
 
     public class MainWindow : Window
     {
-        private readonly TextEditor _textEditor;
+        private TextEditor _textEditor;
         private FoldingManager _foldingManager;
-        private readonly TextMate.TextMate.Installation _textMateInstallation;
+        private TextMate.TextMate.Installation _textMateInstallation;
         private CompletionWindow _completionWindow;
         private OverloadInsightWindow _insightWindow;
         private Button _addControlButton;
@@ -43,11 +41,78 @@ namespace AvaloniaEdit.Demo
         private int _currentTheme = (int)ThemeName.DarkPlus;
         private CustomMargin _customMargin;
 
+
+
+        private Button _removeEditorButton;
+        private DockPanel _mainPanel; // Храним ссылку на DockPanel
+
+
+
+        private void RemoveEditorButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_textEditor != null)
+            {
+                // Создаём слабую ссылку перед удалением
+                WeakReference<TextEditor> editorRef = new WeakReference<TextEditor>(_textEditor);
+
+                Debug.WriteLine("Removing TextEditor...");
+
+                // 1. Отписываем все события от TextEditor
+                _textEditor.TextArea.TextEntered -= textEditor_TextArea_TextEntered;
+                _textEditor.TextArea.TextEntering -= textEditor_TextArea_TextEntering;
+                _textEditor.TextArea.Caret.PositionChanged -= Caret_PositionChanged;
+                _textEditor.TextArea.TextView.ElementGenerators.Clear(); // Очистка генераторов
+
+                // 2. Отписываем обработчик смены темы
+                _textMateInstallation.AppliedTheme -= TextMateInstallationOnAppliedTheme;
+
+                // 3. Полностью очищаем TextMate
+                _textMateInstallation.SetGrammar(null);
+                _textMateInstallation.Dispose();
+                _textMateInstallation = null;
+
+                // 4. Очищаем элементы интерфейса, связанные с TextEditor
+                _syntaxModeCombo.SelectionChanged -= SyntaxModeCombo_SelectionChanged;
+                _mainPanel.Children.Remove(_textEditor);
+
+                // 5. Полностью убираем ссылку на объект
+                _textEditor.Document = null;
+                _textEditor.TextArea.TextView.LineTransformers.Clear();
+                _textEditor.TextArea.LeftMargins.Clear();
+                _textEditor.TextArea.Background = null;
+                _textEditor = null;
+
+                // 6. Принудительно вызываем сборщик мусора
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+
+                // 7. Проверяем, удалился ли TextEditor
+                if (editorRef.TryGetTarget(out _))
+                {
+                    Debug.WriteLine("Memory leak detected! TextEditor is still in memory.");
+                }
+                else
+                {
+                    Debug.WriteLine("TextEditor successfully removed from memory.");
+                }
+            }
+        }
+
+
         public MainWindow()
         {
             InitializeComponent();
 
             this.AttachDevTools();
+
+            _removeEditorButton = this.FindControl<Button>("removeEditorBtn");
+            
+            _removeEditorButton.Click += RemoveEditorButton_Click;
+            _mainPanel = this.FindControl<DockPanel>("DockPanelRoot");
+
+
+
+
 
             _textEditor = this.FindControl<TextEditor>("Editor");
             _textEditor.HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Visible;
